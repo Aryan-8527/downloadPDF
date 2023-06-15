@@ -7,19 +7,30 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import android.Manifest;
+import android.app.DownloadManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.graphics.pdf.PdfDocument;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.Toast;
 
+import com.itextpdf.text.Document;
+import com.itextpdf.text.DocumentException;
+import com.itextpdf.text.Image;
+import com.itextpdf.text.pdf.PdfWriter;
+
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -27,8 +38,9 @@ import java.io.IOException;
 public class MainActivity extends AppCompatActivity {
 
     Button downloadpdf;
-    LinearLayout linearLayout;
-    public static final int REQUEST_CODE_WRITE_EXTERNAL_STORAGE = 10;
+    LinearLayout linearLayouts , linears ;
+    ScrollView scrollView ;
+    public static final int REQUEST_CODE_WRITE_EXTERNAL_STORAGE = 10 ;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,67 +48,73 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         downloadpdf = findViewById(R.id.pdf_download);
-        linearLayout = findViewById(R.id.linearlayout);
+        linearLayouts = findViewById(R.id.linearlayout);
+        linears = findViewById(R.id.xyz_layout);
+        scrollView = findViewById(R.id.scrool);
 
         downloadpdf.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                if (ContextCompat.checkSelfPermission(MainActivity.this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                    // Permission is not granted, request it
+                if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                     ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQUEST_CODE_WRITE_EXTERNAL_STORAGE);
                 } else {
-                    // Permission is already granted, proceed with PDF generation
                     generatePDF();
                 }
             }
         });
     }
 
-        private void generatePDF() {
+    private void generatePDF() {
 
-            // Create a bitmap of the linear layout
+        Bitmap bitmap2 = Bitmap.createBitmap(
+                scrollView.getChildAt(0).getWidth(),
+                scrollView.getChildAt(0).getHeight(),
+                Bitmap.Config.ARGB_8888);
+        Canvas canvas2 = new Canvas(bitmap2);
+        canvas2.drawColor(Color.WHITE);
 
-            Bitmap bitmap = Bitmap.createBitmap(linearLayout.getWidth(), linearLayout.getHeight(), Bitmap.Config.ARGB_8888);
-            Canvas canvas = new Canvas(bitmap);
-            linearLayout.draw(canvas);
+        Drawable bgDrawable = scrollView.getBackground();
+        if (bgDrawable != null)
+            bgDrawable.draw(canvas2);
+        else
+            canvas2.drawColor(Color.WHITE);
+             scrollView.draw(canvas2);
 
-            // pdf acces on Environment.DIRECTORY_DOWNLOADS path //
+        int contentHeight = scrollView.getChildAt(0).getHeight();
+        int scrollViewHeight = scrollView.getHeight();
+        int pageCount = (int) Math.ceil((double) contentHeight / scrollViewHeight);
 
-            String directoryPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath();
-            String fileName = "employeProfile" + ".pdf";
-            String pdfFilePath = directoryPath + File.separator + fileName;
 
-            try {
+        Document document = new Document();
+        String filename = "employeeProfile.pdf";
+        File pdfFile = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS) , filename );
+        try {
+            PdfWriter.getInstance(document, new FileOutputStream(pdfFile));
+            document.open();
 
-                FileOutputStream fos = new FileOutputStream(pdfFilePath);
-                PdfDocument pdfDocument = new PdfDocument();
-                PdfDocument.PageInfo pageInfo = new PdfDocument.PageInfo.Builder(bitmap.getWidth(), bitmap.getHeight(), 1).create();
-                PdfDocument.Page page = pdfDocument.startPage(pageInfo);
-                canvas = page.getCanvas();
-                canvas.drawBitmap(bitmap, 0, 0, null);
-                pdfDocument.finishPage(page);
-                pdfDocument.writeTo(fos);
-                pdfDocument.close();
-                fos.close();
-                Toast.makeText(this, "PDF generated successfully!", Toast.LENGTH_SHORT).show();
-            } catch (IOException e) {
-                e.printStackTrace();
-                Toast.makeText(this, "Failed to generate PDF: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                Log.d("TAG", "generatePDF: " + e.getMessage());
+            for (int pageNumber = 0; pageNumber < pageCount; pageNumber++) {
+                // Create a new page in the document
+                document.newPage();
+
+                // Calculate the visible portion of the ScrollView content for the current page
+                int startOffset = pageNumber * scrollViewHeight;
+                int endOffset = Math.min(startOffset + scrollViewHeight, contentHeight);
+
+                // Create a bitmap for the current page's content
+                Bitmap pageBitmap = Bitmap.createBitmap(bitmap2, 0, startOffset, scrollView.getChildAt(0).getWidth(), endOffset - startOffset);
+                ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                pageBitmap.compress(Bitmap.CompressFormat.PNG, 100, stream);
+                Image pageImage = Image.getInstance(stream.toByteArray());
+                pageImage.scaleToFit(document.getPageSize().getWidth(), document.getPageSize().getHeight());
+                document.add(pageImage);
             }
-        }
+            document.close();
+            Toast.makeText(this, "PDF generated successfully!", Toast.LENGTH_SHORT).show();
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_CODE_WRITE_EXTERNAL_STORAGE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // Permission granted, proceed with PDF generation
-                generatePDF();
-            } else {
-                // Permission denied, show a message or take appropriate action
-                Toast.makeText(this, "Permission denied. Unable to generate PDF.", Toast.LENGTH_SHORT).show();
-            }
+        } catch (IOException | DocumentException e) {
+            e.printStackTrace();
+            Log.d("TAG", "generatePDF: "+e.getMessage());
+            Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show();
         }
-    }
+     }
 }
